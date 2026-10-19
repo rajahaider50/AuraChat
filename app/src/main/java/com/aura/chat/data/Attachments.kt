@@ -400,8 +400,7 @@ class AttachmentManager(
                 if (index >= 0 && !cursor.isNull(index)) cursor.getLong(index) else -1L
             } else -1L
         }
-    }.getOrDefault(-1L)
-
+    }.getOrNull() ?: -1L
     private fun mimeFromName(name: String): String? {
         val ext = name.substringAfterLast('.', "").lowercase()
         return when (ext) {

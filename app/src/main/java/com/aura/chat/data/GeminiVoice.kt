@@ -22,6 +22,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -122,7 +123,7 @@ class GeminiVoice(private val context: Context) {
                 }
             }
             putJsonObject("generationConfig") {
-                putJsonArray("responseModalities") { add("AUDIO") }
+                putJsonArray("responseModalities") { add(JsonPrimitive("AUDIO")) }
                 putJsonObject("speechConfig") {
                     putJsonObject("voiceConfig") {
                         putJsonObject("prebuiltVoiceConfig") { put("voiceName", voice) }

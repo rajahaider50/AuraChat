@@ -363,6 +363,17 @@ class ChatViewModel(private val c: AppContainer, val id: String) : ViewModel() {
             }
         }
         if (Regex("(?i)\\b(connector|mcp server)\\b").containsMatchIn(trimmed)) {
+            if (Regex("(?i)\\b(test|check|health|status)\\b").containsMatchIn(trimmed)) {
+                val requested = Regex("https?://\\S+", RegexOption.IGNORE_CASE).find(trimmed)?.value?.trimEnd('.', ',', ')')
+                val connector = c.repo.connectors.all().let { list ->
+                    requested?.let { url -> list.firstOrNull { it.url.trimEnd('/') == url.trimEnd('/') } }
+                        ?: list.firstOrNull { trimmed.contains(it.name, ignoreCase = true) }
+                        ?: list.firstOrNull()
+                }
+                if (connector == null) return "No connector is saved yet. Say: add connector Files https://example.com/mcp"
+                val result = c.connectors.test(connector)
+                return "${connector.name}: ${result.message}" + if (result.tools.isNotEmpty()) " Tools: ${result.tools.joinToString(", ")}" else ""
+            }
             val url = Regex("https?://\\S+").find(trimmed)?.value
             if (url != null && Regex("(?i)\\b(add|connect|create|new)\\b").containsMatchIn(trimmed)) {
                 val type = when {

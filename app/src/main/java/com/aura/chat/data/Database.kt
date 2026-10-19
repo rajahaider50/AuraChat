@@ -94,8 +94,11 @@ data class ConnectorEntity(
     /** JSON object of extra headers. */
     val headers: String = "{}",
     val description: String = "",
+    val permissions: String = "tools.list,tools.call",
     val enabled: Boolean = true,
     val createdAt: Long,
+    val lastStatus: String = "Not tested",
+    val lastCheckedAt: Long = 0L,
 )
 
 @Entity(
@@ -331,6 +334,9 @@ interface ConnectorDao {
     @Update
     suspend fun update(c: ConnectorEntity)
 
+    @Query("UPDATE connectors SET lastStatus = :status, lastCheckedAt = :checkedAt WHERE id = :id")
+    suspend fun setHealth(id: Long, status: String, checkedAt: Long)
+
     @Query("DELETE FROM connectors WHERE id = :id")
     suspend fun delete(id: Long)
 }
@@ -373,7 +379,7 @@ interface AttachmentDao {
         ConnectorEntity::class,
         AttachmentEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -421,6 +427,14 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_attachments_conversationId` ON `attachments` (`conversationId`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_attachments_messageId` ON `attachments` (`messageId`)")
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE connectors ADD COLUMN lastStatus TEXT NOT NULL DEFAULT 'Not tested'")
+                db.execSQL("ALTER TABLE connectors ADD COLUMN lastCheckedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE connectors ADD COLUMN permissions TEXT NOT NULL DEFAULT 'tools.list,tools.call'")
             }
         }
     }

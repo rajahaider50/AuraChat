@@ -110,7 +110,14 @@ class Repository(db: AppDatabase, val settings: SettingsStore, val api: ChatApi)
         return toMarkdown(c, msg.list(id))
     }
 
-    suspend fun exportAll(): String = conv.all().joinToString("\n\n---\n\n") { toMarkdown(it, msg.list(it.id)) }
+    suspend fun exportAll(): String {
+        val output = StringBuilder()
+        conv.all().forEachIndexed { index, conversation ->
+            if (index > 0) output.append("\n\n---\n\n")
+            output.append(toMarkdown(conversation, msg.list(conversation.id)))
+        }
+        return output.toString()
+    }
 
     companion object {
         const val NEW_TITLE = "New chat"

@@ -32,8 +32,7 @@ class AuraApp : Application() {
 
 class AppContainer(context: Context) {
     private val db = Room.databaseBuilder(context, AppDatabase::class.java, "aura.db")
-        .addMigrations(AppDatabase.MIGRATION_1_2)
-        .fallbackToDestructiveMigration()
+        .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
         .build()
 
     /** Outlives screens: memory extraction and call writes keep working after a disconnect. */

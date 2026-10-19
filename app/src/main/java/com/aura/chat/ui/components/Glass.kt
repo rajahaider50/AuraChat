@@ -25,6 +25,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -54,6 +58,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -329,11 +334,16 @@ fun GlassDialog(
 ) {
     val c = LocalAura.current
     val shape = RoundedCornerShape(28.dp)
+    val configuration = LocalConfiguration.current
+    val maxDialogHeight = (configuration.screenHeightDp - 48).coerceAtLeast(280).dp
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
             Modifier
                 .padding(horizontal = 24.dp)
                 .fillMaxWidth()
+                .heightIn(max = maxDialogHeight)
+                .verticalScroll(rememberScrollState())
+                .imePadding()
                 .clip(shape)
                 .background(c.surface)
                 .border(1.dp, c.border.copy(alpha = 0.2f), shape)

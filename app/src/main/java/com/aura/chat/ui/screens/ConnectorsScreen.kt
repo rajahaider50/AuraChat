@@ -178,6 +178,12 @@ fun ConnectorsScreen(onBack: () -> Unit) {
                         Spacer(Modifier.height(4.dp))
                         Text(connector.description, color = c.textDim, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
                     }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Health: ${connector.lastStatus}",
+                        color = if (connector.lastStatus.startsWith("Connected") || connector.lastStatus.startsWith("API responded")) c.accent2 else c.textDim,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
                     results[connector.id]?.let {
                         Spacer(Modifier.height(8.dp))
                         Text(it, color = if (it.startsWith("Connected") || it.startsWith("API responded")) c.accent2 else c.danger, style = MaterialTheme.typography.bodyMedium)
@@ -262,6 +268,7 @@ private fun ConnectorEditor(
     var apiKey by remember { mutableStateOf(existing?.apiKey.orEmpty()) }
     var headers by remember { mutableStateOf(existing?.headers ?: "{}") }
     var description by remember { mutableStateOf(existing?.description.orEmpty()) }
+    var permissions by remember { mutableStateOf(existing?.permissions ?: "tools.list,tools.call") }
     var error by remember { mutableStateOf<String?>(null) }
 
     GlassDialog(
@@ -282,6 +289,7 @@ private fun ConnectorEditor(
                         apiKey = apiKey.trim(),
                         headers = headers.ifBlank { "{}" },
                         description = description.trim(),
+                        permissions = permissions.trim().ifBlank { "tools.list,tools.call" },
                         enabled = existing?.enabled ?: true,
                         createdAt = existing?.createdAt ?: System.currentTimeMillis(),
                     )
@@ -330,6 +338,15 @@ private fun ConnectorEditor(
         )
         Spacer(Modifier.height(10.dp))
         GlassTextField(description, { description = it }, label = "Notes", placeholder = "What does this connector do?")
+        if (type == "mcp") {
+            Spacer(Modifier.height(10.dp))
+            GlassTextField(
+                permissions, { permissions = it },
+                label = "Allowed permissions (comma-separated)",
+                placeholder = "tools.list,tools.call",
+            )
+            Text("Remove tools.call to allow discovery without remote execution.", color = c.textDim, style = MaterialTheme.typography.labelSmall)
+        }
         error?.let {
             Spacer(Modifier.height(8.dp))
             Text(it, color = c.danger, style = MaterialTheme.typography.bodyMedium)

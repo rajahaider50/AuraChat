@@ -57,7 +57,7 @@ class ConnectorManager(
 
     suspend fun test(connector: ConnectorEntity): TestResult = withContext(Dispatchers.IO) {
         try {
-            when (connector.type) {
+            val result = when (connector.type) {
                 "mcp" -> {
                     val tools = listTools(connector)
                     TestResult(true, "Connected. ${tools.size} MCP tools available.", tools.map { it.displayName })
@@ -83,8 +83,12 @@ class ConnectorManager(
                     }
                 }
             }
+            dao.setHealth(connector.id, result.message, System.currentTimeMillis())
+            result
         } catch (e: Exception) {
-            TestResult(false, e.message ?: "Connection failed.")
+            val message = e.message ?: "Connection failed."
+            dao.setHealth(connector.id, "Failed: $message", System.currentTimeMillis())
+            TestResult(false, message)
         }
     }
 
@@ -164,6 +168,7 @@ class ConnectorManager(
     }
 
     suspend fun listTools(connector: ConnectorEntity): List<ConnectorTool> = withContext(Dispatchers.IO) {
+        requirePermission(connector, "tools.list")
         val session = initialize(connector)
         val response = rpc(connector, session, "tools/list", JsonObject(emptyMap()), 2)
         val result = response["result"] as? JsonObject ?: return@withContext emptyList()
@@ -189,6 +194,7 @@ class ConnectorManager(
 
     suspend fun callTool(connector: ConnectorEntity, name: String, args: JsonObject): String =
         withContext(Dispatchers.IO) {
+            requirePermission(connector, "tools.call")
             val session = initialize(connector)
             val params = buildJsonObject {
                 put("name", name)
@@ -271,14 +277,23 @@ class ConnectorManager(
             .post(payload.toRequestBody("application/json".toMediaType()))
         applyHeaders(builder, connector)
         if (!sessionId.isNullOrBlank()) builder.header("Mcp-Session-Id", sessionId)
-        client.newCall(builder.build()).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            val sid = response.header("Mcp-Session-Id") ?: sessionId
-            if (!response.isSuccessful && body.isBlank()) {
-                throw ApiException("MCP server returned HTTP ${response.code}.")
+        val base = connector.url.trimEnd('/')
+        val candidates = if (base.substringAfter("://").contains('/')) listOf(base) else listOf(base, "$base/mcp", "$base/sse")
+        var last404 = ""
+        candidates.distinct().forEach { endpoint ->
+            val request = builder.url(endpoint).build()
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val sid = response.header("Mcp-Session-Id") ?: sessionId
+                if (response.isSuccessful) return body to sid
+                if (response.code == 404) {
+                    last404 = "MCP endpoint $endpoint returned HTTP 404 ${response.message}."
+                } else {
+                    throw ApiException("MCP server returned HTTP ${response.code} ${response.message}. ${body.take(500)}".trim())
+                }
             }
-            return body to sid
         }
+        throw ApiException("$last404 Check that the MCP URL includes the server endpoint path, commonly /mcp or /sse.")
     }
 
     private fun parseRpc(body: String): JsonObject {
@@ -336,6 +351,11 @@ class ConnectorManager(
     private fun toolKey(connector: ConnectorEntity, remote: String): String {
         val safe = "${connector.id}_${remote}".replace(Regex("[^a-zA-Z0-9_-]"), "_")
         return safe.take(62)
+    }
+
+    private fun requirePermission(connector: ConnectorEntity, permission: String) {
+        val allowed = connector.permissions.split(',').map { it.trim() }.filter { it.isNotBlank() }
+        if (permission !in allowed) throw ApiException("Permission denied by ${connector.name}: $permission")
     }
 
     suspend fun enabledCount(): Int = withContext(Dispatchers.IO) {

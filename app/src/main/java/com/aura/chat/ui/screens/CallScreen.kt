@@ -107,6 +107,7 @@ import com.aura.chat.container
 import com.aura.chat.data.ApiException
 import com.aura.chat.data.ApiMessage
 import com.aura.chat.data.AppSettings
+import com.aura.chat.data.GeminiLiveCall
 import com.aura.chat.data.MessageEntity
 import com.aura.chat.data.Personas
 import com.aura.chat.ui.shareText
@@ -214,6 +215,9 @@ private class CallController(
     private val history = mutableListOf<ApiMessage>()
     private var ending = false
     private var released = false
+    private var liveCall: GeminiLiveCall? = null
+    private var liveUserText = ""
+    private var liveAssistantText = ""
 
     private val proximityListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent?) {
@@ -246,10 +250,56 @@ private class CallController(
         if (settings.geminiKey.isBlank()) {
             note = "Add a Gemini API key in Settings → Voice & calls for Aura's official voice."
         }
-        listen()
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            scope.launch {
+                liveCall = GeminiLiveCall(
+                    apiKey = container.repo.geminiKey(),
+                    model = settings.geminiModel,
+                    voiceName = settings.geminiVoice,
+                    systemInstruction = CALL_PROMPT,
+                    scope = scope,
+                    onInputTranscript = { text -> scope.launch { handleLiveInput(text) } },
+                    onOutputTranscript = { text -> scope.launch { handleLiveOutput(text) } },
+                    onTurnComplete = { scope.launch { finishLiveTurn() } },
+                    onError = { message -> scope.launch { error = message; phase = CallPhase.Listening } },
+                )
+                liveCall?.connect()
+            }
+        } else {
+            error = "Microphone permission is required for calls."
+        }
     }
 
-    fun setLang(l: CallLang) {
+    private suspend fun handleLiveInput(text: String) {
+        if (ended() || text.isBlank()) return
+        if (handleCommand(text)) return
+        liveUserText = text.trim()
+        liveAssistantText = ""
+        lines.add(CallLine(true, liveUserText))
+        phase = CallPhase.Speaking
+    }
+
+    private suspend fun handleLiveOutput(text: String) {
+        if (ended() || text.isBlank()) return
+        liveAssistantText += text
+        val last = lines.lastOrNull()
+        if (last != null && !last.user) lines[lines.lastIndex] = CallLine(false, liveAssistantText)
+        else lines.add(CallLine(false, liveAssistantText))
+        phase = CallPhase.Speaking
+    }
+
+    private suspend fun finishLiveTurn() {
+        if (liveUserText.isNotBlank() && liveAssistantText.isNotBlank()) {
+            history.add(ApiMessage("user", liveUserText))
+            history.add(ApiMessage("assistant", liveAssistantText))
+            persist(liveUserText, liveAssistantText)
+            liveUserText = ""
+            liveAssistantText = ""
+        }
+        if (!ended()) phase = CallPhase.Listening
+    }
+
+    fun changeLanguage(l: CallLang) {
         lang = l
         if (phase == CallPhase.Listening) {
             restartListening(250)
@@ -511,17 +561,17 @@ private class CallController(
             return true
         }
         if (text.contains("speaker")) {
-            setRoute(CallRoute.Speaker)
+            changeRoute(CallRoute.Speaker)
             scope.launch { speakCommandAck("Speaker on.") }
             return true
         }
         if (text.contains("earpiece") || text.contains("phone mode")) {
-            setRoute(CallRoute.Earpiece)
+            changeRoute(CallRoute.Earpiece)
             scope.launch { speakCommandAck("Earpiece.") }
             return true
         }
         if (text.contains("bluetooth")) {
-            setRoute(CallRoute.Bluetooth)
+            changeRoute(CallRoute.Bluetooth)
             scope.launch { speakCommandAck("Bluetooth.") }
             return true
         }
@@ -555,13 +605,8 @@ private class CallController(
 
     private suspend fun speakCommandAck(text: String) {
         if (ended()) return
-        val settings = container.settings.flow.first()
-        val key = container.repo.geminiKey()
-        if (key.isNotBlank()) {
-            phase = CallPhase.Speaking
-            runCatching { container.voice.speak(text, key, settings.geminiVoice, settings.geminiModel) }
-        }
-        if (!muted) resumeListening(250)
+        note = text
+        if (!muted) phase = CallPhase.Listening
     }
 
     fun endWithGoodbye() {
@@ -573,16 +618,9 @@ private class CallController(
         try { recognizer?.cancel() } catch (_: Exception) {}
         phase = CallPhase.Thinking
         job = scope.launch {
-            val settings = container.settings.flow.first()
             val farewell = generateFarewell()
             lines.add(CallLine(false, farewell))
-            val key = container.repo.geminiKey()
-            if (key.isNotBlank()) {
-                phase = CallPhase.Speaking
-                runCatching { container.voice.speak(farewell, key, settings.geminiVoice, settings.geminiModel) }
-            } else {
-                delay(900)
-            }
+            delay(400)
             persistFarewell(farewell)
             saveCallMemory()
             finish()
@@ -611,6 +649,8 @@ private class CallController(
     private fun finish() {
         if (released) return
         phase = CallPhase.Ended
+        liveCall?.close()
+        liveCall = null
         try { recognizer?.destroy() } catch (_: Exception) {}
         recognizer = null
         cleanupAudio()
@@ -622,16 +662,18 @@ private class CallController(
             muted = false
             note = null
             error = null
-            resumeListening(150)
+            liveCall?.mute(false)
+            phase = CallPhase.Listening
         } else {
             muted = true
+            liveCall?.mute(true)
             try { recognizer?.cancel() } catch (_: Exception) {}
             phase = CallPhase.Listening
             note = "Microphone muted. Tap the mic to resume."
         }
     }
 
-    fun setRoute(newRoute: CallRoute) {
+    fun changeRoute(newRoute: CallRoute) {
         route = newRoute
         applyRoute()
     }
@@ -895,7 +937,7 @@ fun CallScreen(onBack: () -> Unit) {
                                 if (selected) Brush.horizontalGradient(listOf(CViolet, CPink))
                                 else Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.07f), Color.White.copy(alpha = 0.07f)))
                             )
-                            .clickable { controller.setLang(l) }
+                            .clickable { controller.changeLanguage(l) }
                             .padding(horizontal = 13.dp, vertical = 7.dp),
                     )
                 }
@@ -1013,7 +1055,7 @@ fun CallScreen(onBack: () -> Unit) {
 
     if (showRoutes) {
         RouteDialog(selected = controller.route, onPick = {
-            controller.setRoute(it)
+            controller.changeRoute(it)
             showRoutes = false
         }, onDismiss = { showRoutes = false })
     }
