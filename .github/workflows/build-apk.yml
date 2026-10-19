@@ -1,14 +1,12 @@
 name: Build APK
 
 # Builds an installable APK automatically on every push, manually from the
-# Actions tab, or when you comment "/build" on any issue or commit.
+# Actions tab, or when you comment "/build" on any issue.
 on:
   push:
     branches: [main, master]
   workflow_dispatch:
   issue_comment:
-    types: [created]
-  commit_comment:
     types: [created]
 
 permissions:
@@ -32,8 +30,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.comment.commit_id || '' }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -79,7 +75,7 @@ jobs:
             --repo "${{ github.repository }}" \
             --title "Aura Chat build ${{ github.run_number }}" \
             --notes "Automated build from ${{ github.sha }}. Download the APK below and install it on your Android phone." \
-            --target "${{ github.event.comment.commit_id || github.sha }}"
+            --target "${{ github.sha }}"
           echo "url=https://github.com/${{ github.repository }}/releases/tag/$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Reply on issue
@@ -89,11 +85,3 @@ jobs:
         run: |
           gh issue comment "${{ github.event.issue.number }}" --repo "${{ github.repository }}" \
             --body "APK is ready: ${{ steps.release.outputs.url }}"
-
-      - name: Reply on commit
-        if: github.event_name == 'commit_comment'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api "repos/${{ github.repository }}/commits/${{ github.event.comment.commit_id }}/comments" \
-            -f body="APK is ready: ${{ steps.release.outputs.url }}"
